@@ -1,0 +1,116 @@
+# ===========================================================================
+# AI News App — Comprehensive Git Ignore
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Python & Virtual Environments (Rule: Never commit venv or bytecode)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+backend/.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ---------------------------------------------------------------------------
+# Environment Variables & Secrets (NEVER commit secrets or API keys)
+# ---------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+*.env
+
+# ---------------------------------------------------------------------------
+# Databases (Local test/dev databases)
+# ---------------------------------------------------------------------------
+*.sqlite3
+db.sqlite3
+backend/db.sqlite3
+*.db
+
+# ---------------------------------------------------------------------------
+# Testing & Caching
+# ---------------------------------------------------------------------------
+.pytest_cache/
+backend/.pytest_cache/
+.import_linter_cache/
+backend/.import_linter_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# ---------------------------------------------------------------------------
+# Flutter & Dart (client/ build artifacts & cache)
+# ---------------------------------------------------------------------------
+client/.dart_tool/
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+client/.packages
+client/.pub-cache/
+client/.pub/
+client/build/
+client/coverage/
+client/windows/flutter/ephemeral/
+client/android/.gradle/
+client/android/app/build/
+client/android/local.properties
+client/android/key.properties
+client/ios/.generated/
+client/ios/Flutter/Flutter.framework
+client/ios/Flutter/Flutter.podspec
+client/ios/Flutter/Generated.xcconfig
+client/ios/Flutter/app.framework
+client/ios/Pods/
+client/ios/.symlinks/
+
+# ---------------------------------------------------------------------------
+# IDE & System Files
+# ---------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+*.log
+
+# Antigravity / VS Code workspace overrides (leave launch/settings, ignore local state)
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.iml
