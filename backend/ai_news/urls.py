@@ -14,3 +14,10 @@ try:
 except ImportError:
     pass
 
+# Learning module routes (Step 2)
+try:
+    import learning.urls  # noqa: F401
+    urlpatterns.append(path("api/v1/learning/", include("learning.urls")))
+except ImportError:
+    pass
+

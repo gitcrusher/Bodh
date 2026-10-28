@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     # Project apps — modules depend on core; core never depends on a module
     "core",
     "research.apps.ResearchConfig",
+    "learning.apps.LearningConfig",
 ]
 
 MIDDLEWARE = [
@@ -197,4 +198,5 @@ DB_USAGE_ALERT_PCT = int(os.getenv("DB_USAGE_ALERT_PCT", "80"))
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS_DEFAULT = {
     "research_module": os.getenv("FEATURE_RESEARCH_MODULE", "true").lower() == "true",
+    "learning_module": os.getenv("FEATURE_LEARNING_MODULE", "true").lower() == "true",
 }
