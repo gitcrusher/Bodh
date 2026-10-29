@@ -4,8 +4,11 @@ Core platform models.
 Rule: core never imports from a module app. Modules import from core.
 """
 
+from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
+
+from core.encryption import decrypt_secret, encrypt_secret, mask_api_key
 
 
 # ---------------------------------------------------------------------------
@@ -192,3 +195,100 @@ class RetentionRule(models.Model):
 
     def __str__(self) -> str:
         return f"{self.module}/{self.rule_key} ({'active' if self.active else 'inactive'})"
+
+
+# ---------------------------------------------------------------------------
+# LLM credentials (BYOK) — encrypted at rest, scoped per user
+# ---------------------------------------------------------------------------
+class LLMCredential(models.Model):
+    """
+    Bring-Your-Own-Key (BYOK) credentials table.
+    Enforces Rule 39 & Step 4:
+    - Encrypted at rest via Fernet.
+    - Scoped per user.
+    - Personalization (deep-dive rewrites, paper chat) uses this key when present.
+    """
+
+    PROVIDER_CHOICES = [
+        ("gemini", "Google Gemini"),
+        ("groq", "Groq"),
+        ("anthropic", "Anthropic Claude"),
+        ("openai", "OpenAI"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="llm_credentials")
+    provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES)
+    encrypted_api_key = models.TextField()
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "llm_credentials"
+        unique_together = [("user", "provider")]
+        indexes = [
+            models.Index(fields=["user", "is_default"]),
+        ]
+
+    def set_api_key(self, plain_key: str) -> None:
+        """Encrypts and sets the plaintext API key."""
+        self.encrypted_api_key = encrypt_secret(plain_key.strip())
+
+    def get_api_key(self) -> str:
+        """Decrypts and returns the plaintext API key."""
+        return decrypt_secret(self.encrypted_api_key)
+
+    @property
+    def masked_key(self) -> str:
+        """Returns safe masked representation for UI presentation."""
+        plain = self.get_api_key()
+        return mask_api_key(plain)
+
+    def __str__(self) -> str:
+        return f"User {self.user_id} - {self.provider} ({self.masked_key})"
+
+
+# ---------------------------------------------------------------------------
+# Daily shared quota usage — caps personalized calls for users without BYOK
+# ---------------------------------------------------------------------------
+class DailyPersonalizedQuota(models.Model):
+    """
+    Tracks daily personalized LLM requests (deep-dive rewrites, paper chat)
+    performed under the shared owner keys when user hasn't added a BYOK key.
+    Design Doc §12: Caps at 5 free personalized calls per day.
+    """
+
+    DEFAULT_DAILY_CAP = 5
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="quota_usage")
+    session_id = models.CharField(max_length=64, blank=True, db_index=True)
+    date = models.DateField(default=timezone.now)
+    call_count = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "daily_personalized_quota"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "date"],
+                condition=models.Q(user__isnull=False),
+                name="uq_user_quota_date",
+            ),
+            models.UniqueConstraint(
+                fields=["session_id", "date"],
+                condition=models.Q(session_id__gt=""),
+                name="uq_session_quota_date",
+            ),
+        ]
+
+    def increment(self) -> int:
+        self.call_count += 1
+        self.save(update_fields=["call_count"])
+        return self.call_count
+
+    def is_capped(self, limit: int = DEFAULT_DAILY_CAP) -> bool:
+        return self.call_count >= limit
+
+    def __str__(self) -> str:
+        target = f"User {self.user_id}" if self.user_id else f"Session {self.session_id}"
+        return f"{target} @ {self.date}: {self.call_count}/{self.DEFAULT_DAILY_CAP}"
+
