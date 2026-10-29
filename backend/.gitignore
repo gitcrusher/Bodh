@@ -1,0 +1,46 @@
+# ===========================================================================
+# AI News App — Backend Git Ignore
+# ===========================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Caches & Test artifacts
+.pytest_cache/
+.import_linter_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Environment secrets (Rule: Never commit API keys or credentials)
+.env
+.env.*
+*.env
+!.env.example
+
+# Database (Local SQLite dev database)
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+db.sqlite3
+*.db
+
+# Logs & temp files
+*.log
+scratch/
+tmp/
+temp/
