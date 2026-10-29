@@ -9,6 +9,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
 .Python
 build/
 develop-eggs/
@@ -36,25 +37,30 @@ env.bak/
 venv.bak/
 
 # ---------------------------------------------------------------------------
-# Environment Variables & Secrets (NEVER commit secrets or API keys)
+# Environment Variables & Secrets (Rule: NEVER commit secrets or API keys)
 # ---------------------------------------------------------------------------
 .env
-.env.local
-.env.*.local
-backend/.env
-backend/.env.local
+.env.*
 *.env
+backend/.env
+backend/.env.*
+!.env.example
+!backend/.env.example
+!*.env.example
 
 # ---------------------------------------------------------------------------
 # Databases (Local test/dev databases)
 # ---------------------------------------------------------------------------
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
 db.sqlite3
 backend/db.sqlite3
 *.db
 
 # ---------------------------------------------------------------------------
-# Testing & Caching
+# Testing, Linter & Cache Artifacts
 # ---------------------------------------------------------------------------
 .pytest_cache/
 backend/.pytest_cache/
@@ -63,29 +69,42 @@ backend/.import_linter_cache/
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
 .tox/
 .nox/
 nosetests.xml
-coverage.xml
 *.cover
 *.py,cover
+.mypy_cache/
+.ruff_cache/
 
 # ---------------------------------------------------------------------------
 # Flutter & Dart (client/ build artifacts & cache)
 # ---------------------------------------------------------------------------
+.dart_tool/
 client/.dart_tool/
+.flutter-plugins
 client/.flutter-plugins
+.flutter-plugins-dependencies
 client/.flutter-plugins-dependencies
+.packages
 client/.packages
+.pub-cache/
 client/.pub-cache/
+.pub/
 client/.pub/
 client/build/
 client/coverage/
+
+# Platform-specific Ephemeral & Generated Files
 client/windows/flutter/ephemeral/
+client/macos/Flutter/ephemeral/
+client/linux/flutter/ephemeral/
 client/android/.gradle/
 client/android/app/build/
 client/android/local.properties
 client/android/key.properties
+client/android/.cxx/
 client/ios/.generated/
 client/ios/Flutter/Flutter.framework
 client/ios/Flutter/Flutter.podspec
@@ -93,6 +112,10 @@ client/ios/Flutter/Generated.xcconfig
 client/ios/Flutter/app.framework
 client/ios/Pods/
 client/ios/.symlinks/
+
+# Keystores & sensitive credentials
+*.keystore
+*.jks
 
 # ---------------------------------------------------------------------------
 # IDE & System Files
@@ -106,11 +129,30 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 *.log
+*.log.*
 
-# Antigravity / VS Code workspace overrides (leave launch/settings, ignore local state)
+# IntelliJ / Android Studio
+.idea/
+client/.idea/
+*.iml
+client/*.iml
+client/android/*.iml
+*.ipr
+*.iws
+
+# VS Code (preserve shared workspace settings & configs)
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.json
 !.vscode/extensions.json
-.idea/
-*.iml
+
+# Scratch & Temporary Folders
+scratch/
+*/scratch/
+temp/
+tmp/
+*.tmp
+*.bak
+*~
+.gemini/
+.antigravity/
