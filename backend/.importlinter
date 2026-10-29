@@ -1,0 +1,18 @@
+# .importlinter configuration
+# Enforces Rule 29:
+# "Modules depend on core; core never depends on a module; no cross-module internal imports."
+
+[importlinter]
+root_packages =
+    core
+    ai_news
+include_external_packages = True
+
+[importlinter:contract:core-never-imports-modules]
+name = Core never imports from modules
+type = forbidden
+source_modules =
+    core
+forbidden_modules =
+    research
+
