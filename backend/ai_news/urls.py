@@ -5,6 +5,7 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/v1/core/", include("core.urls")),
 ]
 
 # Conditionally include research routes once the research app is installed
