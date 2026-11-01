@@ -74,13 +74,23 @@ class CircuitBreaker:
 
 class LLMRouter:
     """
-    Provider-agnostic router.
-
-    Usage:
-        router = get_router()
-        response = router.complete(request)  # returns LLMResponse
-        # response.provider tells you which provider was used
+    Provider-agnostic router with task & token-aware segregation:
+    - High-throughput, fast, low-token tasks (triage, relation critic, number check)
+      prioritize lightweight endpoints (Groq Llama 3.1 8B).
+    - Complex reasoning & large-context tasks (summarization, deep-dives, paper chat)
+      prioritize high-capacity models (Gemini Flash/Pro).
+    - Multi-account rotation pool (gemini_1, gemini_2, groq_1, groq_2) balances requests
+      across multiple user accounts to maximize free tier quotas without hitting RPM ceilings.
     """
+
+    FAST_LOW_TOKEN_RECIPES: set[str] = {
+        "research_triage",
+        "research_number_check",
+        "scientific_paper_relation_critic",
+        "quiz_item_check",
+        "triage",
+        "entity_check",
+    }
 
     def __init__(
         self,
@@ -90,10 +100,42 @@ class LLMRouter:
     ) -> None:
         self._providers: dict[str, BaseProvider] = {p.name: p for p in providers}
         self._priority: list[str] = [p.name for p in providers]
+        self._call_count: int = 0
         self.max_retries = max_retries
         self.circuit_breaker = circuit_breaker or CircuitBreaker(
             threshold=settings.LLM_CIRCUIT_BREAKER_THRESHOLD
         )
+
+    def _resolve_priority_for_request(self, request: LLMRequest) -> list[str]:
+        """
+        Determines provider evaluation order dynamically based on task & token profiles:
+        - Fast / low-token tasks prefer Groq first to conserve foundation model tokens and minimize latency.
+        - High-context / synthesis tasks prefer Gemini first.
+        - Multi-account rotation alternates across accounts of the same provider.
+        """
+        self._call_count += 1
+        base_priority = [p for p in self._priority if p in self._providers]
+
+        # 1. Task & Token-based segregation
+        if request.recipe_name in self.FAST_LOW_TOKEN_RECIPES:
+            fast = [p for p in base_priority if p.startswith("groq")]
+            rest = [p for p in base_priority if not p.startswith("groq")]
+            base_priority = fast + rest
+        elif request.recipe_name:
+            heavy = [p for p in base_priority if p.startswith("gemini")]
+            rest = [p for p in base_priority if not p.startswith("gemini")]
+            base_priority = heavy + rest
+
+        # 2. Multi-Account pool rotation across multiple user accounts
+        for prefix in ("gemini", "groq"):
+            matching = [p for p in base_priority if p.startswith(prefix)]
+            if len(matching) > 1:
+                shift = self._call_count % len(matching)
+                rotated = matching[shift:] + matching[:shift]
+                rot_iter = iter(rotated)
+                base_priority = [next(rot_iter) if p.startswith(prefix) else p for p in base_priority]
+
+        return base_priority
 
     # ------------------------------------------------------------------
     # Public API
@@ -101,14 +143,15 @@ class LLMRouter:
 
     def complete(self, request: LLMRequest) -> LLMResponse:
         """
-        Try each provider in priority order.
+        Try each provider in task-resolved priority order.
         Per provider: retry up to max_retries on transient errors.
         Returns the first successful LLMResponse.
         Raises AllProvidersFailedError if every provider failed.
         """
         last_exc: Exception | None = None
+        evaluation_order = self._resolve_priority_for_request(request)
 
-        for name in self._priority:
+        for name in evaluation_order:
             provider = self._providers.get(name)
             if provider is None:
                 continue
@@ -126,7 +169,7 @@ class LLMRouter:
                 try:
                     response = provider.complete(request)
                     self.circuit_breaker.record_success(name)
-                    if name != self._priority[0]:
+                    if name != evaluation_order[0]:
                         response.raw  # noqa — response already has provider set
                         logger.info(
                             "Fallback used: provider=%s recipe=%s",
@@ -220,11 +263,10 @@ def _build_router() -> LLMRouter:
             api_key_env = cfg.get("api_key_env", f"GEMINI_API_KEY_{name[-1].upper()}")
             provider_map[name] = GeminiProvider(name=name, api_key_env=api_key_env, model=model)
 
-        elif name == "groq":
-            provider_map[name] = GroqProvider(model=model)
-
-        elif name == "anthropic":
-            provider_map[name] = AnthropicProvider(model=model)
+        elif name.startswith("groq"):
+            default_env = f"GROQ_API_KEY_{name[-1].upper()}" if name[-1].isdigit() else "GROQ_API_KEY"
+            api_key_env = cfg.get("api_key_env", default_env)
+            provider_map[name] = GroqProvider(name=name, api_key_env=api_key_env, model=model)
 
         elif name == "fake":
             provider_map[name] = FakeProvider()
