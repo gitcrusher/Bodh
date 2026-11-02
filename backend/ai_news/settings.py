@@ -124,9 +124,11 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG  # permissive in dev only
 
 # ---------------------------------------------------------------------------
 # LLM router config (read by core.llm.router)
+# Active working providers: Groq (GPT-OSS on LPU), Google Gemini, Z.AI (Free GLM)
+# Note: OpenAI removed from default active routing due to $0 credit balance.
 # ---------------------------------------------------------------------------
 LLM_PROVIDER_PRIORITY = os.getenv(
-    "LLM_PROVIDER_PRIORITY", "groq_fast,groq_heavy,gemini_1,gemini_2,zai,openai"
+    "LLM_PROVIDER_PRIORITY", "groq_fast,groq_heavy,gemini_1,gemini_2,zai"
 ).split(",")
 
 LLM_PROVIDER_CONFIG = {
@@ -143,12 +145,12 @@ LLM_PROVIDER_CONFIG = {
     },
     "groq_safety": {
         "api_key_env": "GROQ_API_KEY_1",
-        "model": os.getenv("GROQ_SAFETY_MODEL", "safety/gpt-oss-20b"),
+        "model": os.getenv("GROQ_SAFETY_MODEL", "openai/gpt-oss-safeguard-20b"),
         "max_tokens": 8192,
     },
     "groq_vision": {
         "api_key_env": "GROQ_API_KEY_1",
-        "model": os.getenv("GROQ_VISION_MODEL", "qwen-3.8-27b"),
+        "model": os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b"),
         "max_tokens": 8192,
     },
     "groq_1": {
@@ -166,20 +168,20 @@ LLM_PROVIDER_CONFIG = {
         "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
         "max_tokens": 8192,
     },
-    # Google Gemini (Gemini 3.8 Flash, 3.1 Pro Preview, 3.5 Flash-Lite)
+    # Google Gemini (Gemini 3.5 Flash & Flash-Lite verified active)
     "gemini_1": {
         "api_key_env": "GEMINI_API_KEY_1",
-        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
         "max_tokens": 8192,
     },
     "gemini_2": {
         "api_key_env": "GEMINI_API_KEY_2",
-        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
         "max_tokens": 8192,
     },
     "gemini_3": {
         "api_key_env": "GEMINI_API_KEY_3",
-        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
         "max_tokens": 8192,
     },
     "gemini_pro": {
@@ -189,7 +191,7 @@ LLM_PROVIDER_CONFIG = {
     },
     "gemini_flash": {
         "api_key_env": "GEMINI_API_KEY_1",
-        "model": os.getenv("GEMINI_FLASH_MODEL", "gemini-3.8-flash"),
+        "model": os.getenv("GEMINI_FLASH_MODEL", "gemini-3.5-flash"),
         "max_tokens": 8192,
     },
     "gemini_flash_lite": {
