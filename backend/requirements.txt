@@ -10,10 +10,10 @@ pgvector>=0.2.0
 # LLM providers
 # Google Gemini — free tier (1M tokens/min on Flash)
 google-generativeai>=0.8.0
-# Anthropic — paid, premium fallback
-anthropic>=0.30.0
 # Groq — free tier (fast inference: Llama3, Gemma)
 groq>=0.10.0
+# OpenAI — high-capacity reasoning
+openai>=1.0.0
 
 # LangGraph orchestration (library, not a service)
 langgraph>=0.2.0

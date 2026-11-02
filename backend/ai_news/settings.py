@@ -126,29 +126,108 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG  # permissive in dev only
 # LLM router config (read by core.llm.router)
 # ---------------------------------------------------------------------------
 LLM_PROVIDER_PRIORITY = os.getenv(
-    "LLM_PROVIDER_PRIORITY", "gemini_1,gemini_2,groq,anthropic"
+    "LLM_PROVIDER_PRIORITY", "groq_fast,groq_heavy,gemini_1,gemini_2,zai,openai"
 ).split(",")
 
 LLM_PROVIDER_CONFIG = {
-    "gemini_1": {
-        "api_key_env": "GEMINI_API_KEY_1",
-        "model": os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest"),
+    # Groq LPUs (OpenAI GPT-OSS, Qwen, Safety)
+    "groq_fast": {
+        "api_key_env": "GROQ_API_KEY_1",
+        "model": os.getenv("GROQ_FAST_MODEL", "openai/gpt-oss-20b"),
         "max_tokens": 8192,
     },
-    "gemini_2": {
-        "api_key_env": "GEMINI_API_KEY_2",
-        "model": os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest"),
+    "groq_heavy": {
+        "api_key_env": "GROQ_API_KEY_1",
+        "model": os.getenv("GROQ_HEAVY_MODEL", "openai/gpt-oss-120b"),
+        "max_tokens": 8192,
+    },
+    "groq_safety": {
+        "api_key_env": "GROQ_API_KEY_1",
+        "model": os.getenv("GROQ_SAFETY_MODEL", "safety/gpt-oss-20b"),
+        "max_tokens": 8192,
+    },
+    "groq_vision": {
+        "api_key_env": "GROQ_API_KEY_1",
+        "model": os.getenv("GROQ_VISION_MODEL", "qwen-3.8-27b"),
+        "max_tokens": 8192,
+    },
+    "groq_1": {
+        "api_key_env": "GROQ_API_KEY_1",
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+        "max_tokens": 8192,
+    },
+    "groq_2": {
+        "api_key_env": "GROQ_API_KEY_2",
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
         "max_tokens": 8192,
     },
     "groq": {
         "api_key_env": "GROQ_API_KEY",
-        "model": os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
         "max_tokens": 8192,
     },
-    "anthropic": {
-        "api_key_env": "ANTHROPIC_API_KEY",
-        "model": os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
-        "max_tokens": 4096,
+    # Google Gemini (Gemini 3.8 Flash, 3.1 Pro Preview, 3.5 Flash-Lite)
+    "gemini_1": {
+        "api_key_env": "GEMINI_API_KEY_1",
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "max_tokens": 8192,
+    },
+    "gemini_2": {
+        "api_key_env": "GEMINI_API_KEY_2",
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "max_tokens": 8192,
+    },
+    "gemini_3": {
+        "api_key_env": "GEMINI_API_KEY_3",
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "max_tokens": 8192,
+    },
+    "gemini_pro": {
+        "api_key_env": "GEMINI_API_KEY_1",
+        "model": os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview"),
+        "max_tokens": 8192,
+    },
+    "gemini_flash": {
+        "api_key_env": "GEMINI_API_KEY_1",
+        "model": os.getenv("GEMINI_FLASH_MODEL", "gemini-3.8-flash"),
+        "max_tokens": 8192,
+    },
+    "gemini_flash_lite": {
+        "api_key_env": "GEMINI_API_KEY_1",
+        "model": os.getenv("GEMINI_FLASH_LITE_MODEL", "gemini-3.5-flash-lite"),
+        "max_tokens": 8192,
+    },
+    # Z.AI / BigModel GLM (100% Free text models: GLM-4.7-Flash, GLM-4.5-Flash)
+    "zai": {
+        "api_key_env": "ZAI_API_KEY",
+        "model": os.getenv("ZAI_MODEL", "glm-4.7-flash"),
+        "max_tokens": 8192,
+    },
+    "zai_fast": {
+        "api_key_env": "ZAI_API_KEY",
+        "model": os.getenv("ZAI_FAST_MODEL", "glm-4.5-flash"),
+        "max_tokens": 8192,
+    },
+    # OpenAI (ChatGPT)
+    "openai_1": {
+        "api_key_env": "OPENAI_API_KEY_1",
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "max_tokens": 8192,
+    },
+    "openai_2": {
+        "api_key_env": "OPENAI_API_KEY_2",
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "max_tokens": 8192,
+    },
+    "openai": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "max_tokens": 8192,
+    },
+    "openai_heavy": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model": os.getenv("OPENAI_HEAVY_MODEL", "gpt-4o"),
+        "max_tokens": 8192,
     },
     "fake": {
         "api_key_env": None,
