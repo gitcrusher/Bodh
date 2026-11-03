@@ -247,6 +247,52 @@ def run_paper_chat(
     # Record user message
     ChatMessage.objects.create(session=session, role="user", content=clean_message)
 
+    # 2b. Fast guardrail: cheap-model triage for off-topic / inappropriate queries
+    #     Uses research_triage recipe (Groq openai/gpt-oss-20b or Z.AI glm-4.5-flash)
+    #     so the heavy synthesis model is never invoked for junk/off-topic questions.
+    _triage_router = router or LLMRouter()
+    _triage_deflected = False
+    try:
+        from research.recipes import TRIAGE_RECIPE
+        _triage_prompt = (
+            f"Paper title: {card.headline}\n\n"
+            f"User question: {clean_message}\n\n"
+            "Is this question directly about this research paper's content, methods, results, or closely related AI/ML topics? "
+            "Reply with a single JSON object: {\"accept\": true} or {\"accept\": false}. No other text."
+        )
+        _triage_resp = _triage_router.complete(
+            prompt=_triage_prompt,
+            recipe_name=TRIAGE_RECIPE.name,
+            temperature=0.0,
+            max_tokens=20,
+            system_instruction=TRIAGE_RECIPE.system_template,
+        )
+        import json as _json
+        _triage_parsed = _json.loads(_triage_resp)
+        if not _triage_parsed.get("accept", True):
+            _triage_deflected = True
+    except Exception as _triage_exc:
+        logger.debug("Guardrail triage failed (non-fatal): %s", _triage_exc)
+        _triage_deflected = False
+
+    if _triage_deflected:
+        _deflect_text = (
+            "I can only answer questions about this research paper. "
+            "Please ask something related to the paper's content, methods, or findings."
+        )
+        ChatMessage.objects.create(
+            session=session,
+            role="assistant",
+            content=_deflect_text,
+            citations=[],
+        )
+        return {
+            "session_id": session.id,
+            "answer": _deflect_text,
+            "citations": [],
+            "abstain": True,
+        }
+
     # 3. Retrieve relevant chunks
     scored_chunks = retrieve_top_chunks(
         card=card,

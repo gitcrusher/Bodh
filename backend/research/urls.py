@@ -6,6 +6,8 @@ from research.views import (
     CardDetailView,
     CardFeedView,
     CardReportView,
+    ChatSessionDeleteView,
+    ChatSessionListView,
     DynamicPaperLinksView,
     PaperChatHistoryView,
     PaperChatView,
@@ -28,4 +30,6 @@ urlpatterns = [
     path("cards/<int:card_id>/related/", RelatedCardsView.as_view(), name="card-related"),
     path("cards/<int:card_id>/links/", DynamicPaperLinksView.as_view(), name="card-links"),
     path("sources/", SourceListView.as_view(), name="source-list"),
+    path("chat/sessions/", ChatSessionListView.as_view(), name="chat-session-list"),
+    path("chat/sessions/<int:session_id>/", ChatSessionDeleteView.as_view(), name="chat-session-delete"),
 ]

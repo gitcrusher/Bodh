@@ -29,6 +29,7 @@ from research.models import Card, ChatSession, Source
 from research.serializers import (
     CardDetailSerializer,
     CardListSerializer,
+    ChatSessionListSerializer,
     ChatSessionSerializer,
     ContentReportCreateSerializer,
     PaperChatRequestSerializer,
@@ -197,6 +198,51 @@ class PaperChatHistoryView(APIView):
         return Response(serializer.data)
 
 
+class ChatSessionListView(APIView):
+    """
+    GET  /api/v1/research/chat/sessions/  — list all sessions (newest first), paginated by ?page=N&page_size=20
+    DELETE /api/v1/research/chat/sessions/{session_id}/  — delete a session and all its messages
+    """
+
+    def get(self, request: Request) -> Response:
+        qs = (
+            ChatSession.objects.select_related('card')
+            .prefetch_related('messages')
+            .order_by('-last_activity_at')
+        )
+        # Simple manual pagination
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        except (TypeError, ValueError):
+            page = 1
+            page_size = 20
+        start = (page - 1) * page_size
+        end = start + page_size
+        sessions = list(qs[start:end])
+        total = qs.count()
+        serializer = ChatSessionListSerializer(sessions, many=True)
+        return Response({
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data,
+        })
+
+
+class ChatSessionDeleteView(APIView):
+    """DELETE /api/v1/research/chat/sessions/{session_id}/"""
+
+    def delete(self, request: Request, session_id: int) -> Response:
+        try:
+            session = ChatSession.objects.get(pk=session_id)
+        except ChatSession.DoesNotExist:
+            raise NotFound(f'ChatSession {session_id} not found')
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
 class RelatedCardsView(APIView):
     """
     GET /api/v1/research/cards/{card_id}/related/
@@ -211,7 +257,7 @@ class RelatedCardsView(APIView):
         except Card.DoesNotExist:
             raise NotFound(f"Card {card_id} not found")
 
-        # 1. First check bound CardRelation links
+        # 1. Fetch bound CardRelation dynamic links
         related_ids = list(
             card.outgoing_relations.values_list("target_card_id", flat=True)
         )
@@ -226,7 +272,7 @@ class RelatedCardsView(APIView):
             serializer = CardListSerializer(ordered_cards, many=True)
             return Response(serializer.data)
 
-        # 2. Fallback to tags or candidate techniques
+        # 2. Fallback to tags for cards without explicit relations
         qs = Card.objects.exclude(pk=card.pk)
         if card.tags:
             from django.db.models import Q
@@ -234,12 +280,6 @@ class RelatedCardsView(APIView):
             for t in card.tags:
                 tag_q |= Q(tags__icontains=t)
             qs = qs.filter(tag_q)
-        elif card.candidate_techniques:
-            from django.db.models import Q
-            tech_q = Q()
-            for t in card.candidate_techniques:
-                tech_q |= Q(candidate_techniques__icontains=t)
-            qs = qs.filter(tech_q)
         else:
             qs = qs.filter(category=card.category)
 

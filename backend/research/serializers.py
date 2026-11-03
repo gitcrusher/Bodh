@@ -240,3 +240,30 @@ class DynamicPaperLinkSerializer(serializers.Serializer):
     target_techniques = serializers.ListField(child=serializers.CharField(), required=False)
 
 
+# ---------------------------------------------------------------------------
+# Chat Session List/Delete Serializer
+# ---------------------------------------------------------------------------
+
+
+class ChatSessionListSerializer(serializers.ModelSerializer):
+    card_headline = serializers.CharField(source='card.headline', read_only=True)
+    card_image_url = serializers.CharField(source='card.image_url', read_only=True, allow_null=True)
+    message_count = serializers.SerializerMethodField()
+    last_message_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatSession
+        fields = [
+            'id', 'card_id', 'card_headline', 'card_image_url',
+            'started_at', 'last_activity_at', 'message_count', 'last_message_preview',
+        ]
+
+    def get_message_count(self, obj: ChatSession) -> int:
+        return obj.messages.count()
+
+    def get_last_message_preview(self, obj: ChatSession) -> str:
+        last = obj.messages.filter(role='assistant').order_by('-created_at').first()
+        if last:
+            return last.content[:120]
+        return ''
+
