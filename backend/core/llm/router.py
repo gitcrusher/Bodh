@@ -83,13 +83,43 @@ class LLMRouter:
       across multiple user accounts to maximize free tier quotas without hitting RPM ceilings.
     """
 
+    # ── Task-to-recipe sets ──────────────────────────────────────────────────
+    # FAST / LOW-TOKEN: triage, guardrails, quick classifiers
+    # → groq_fast (GPT-OSS 20B ~1000 tps), zai_fast (GLM-4.5-Flash free),
+    #   gemini_lite (Gemini 3.5 Flash-Lite)
     FAST_LOW_TOKEN_RECIPES: set[str] = {
         "research_triage",
+        "research_chat_triage",
         "research_number_check",
         "scientific_paper_relation_critic",
         "quiz_item_check",
         "triage",
         "entity_check",
+    }
+
+    # COMPLEX REASONING: deep synthesis, paper chat, agentic multi-step
+    # → groq_heavy (GPT-OSS 120B MoE ~500 tps), groq_reason (Qwen 3.8 27B),
+    #   gemini_hc (Gemini 3.8 Flash, high-context)
+    COMPLEX_REASONING_RECIPES: set[str] = {
+        "deep_dive_synthesis",
+        "paper_chat",
+        "research_paper_chat",
+        "assistant_study_mode",
+    }
+
+    # HIGH-TOKEN: full paper ingestion requiring 1M+ token windows
+    # → gemini_hc (Gemini 3.8 Flash, 1M+ window) first, then gemini_1/2
+    HIGH_TOKEN_RECIPES: set[str] = {
+        "paper_full_text_ingest",
+        "paper_chat_context",
+    }
+
+    # MEDIUM: summarization, quiz gen, clustering
+    # → groq_fast (GPT-OSS 20B), gemini_1/2 (Gemini 3.6 Flash), zai (GLM-4.7-Flash)
+    MEDIUM_RECIPES: set[str] = {
+        "research_summarize",
+        "quiz_question_generation",
+        "topic_clustering",
     }
 
     def __init__(
@@ -109,31 +139,74 @@ class LLMRouter:
     def _resolve_priority_for_request(self, request: LLMRequest) -> list[str]:
         """
         Determines provider evaluation order dynamically based on task & token profiles:
-        - Fast / low-token tasks prefer Groq first to conserve foundation model tokens and minimize latency.
-        - High-context / synthesis tasks prefer Gemini first.
-        - Multi-account rotation alternates across accounts of the same provider.
+        - Complex Tasks (deep dives, paper chat):
+          Prioritizes Groq heavy reasoning (OpenAI GPT-OSS 120B on Groq LPUs), Qwen 3.8 27B on Groq,
+          or Gemini Pro / Gemini High-Context (Gemini 3.8 Flash).
+        - High-Token Tasks (full paper text context, long ingest):
+          Prioritizes Gemini High-Context (Gemini 3.8 Flash with 1M+ token window).
+        - Medium Tasks (summarize, quiz generation, topic clustering):
+          Prioritizes Groq fast (OpenAI GPT-OSS 20B on Groq LPUs), Gemini 3.6 Flash, or Z.AI GLM-4.7-Flash.
+        - Fast / Low-Token Tasks (triage, number check, relation critic, chat triage):
+          Prioritizes Groq fast (OpenAI GPT-OSS 20B ~1000 tps), Z.AI fast (GLM-4.5-Flash free),
+          or Gemini Flash-Lite.
+        - Multi-Account Rotation:
+          Rotates across multiple accounts of the same provider pool (gemini_1 <-> gemini_2,
+          groq_1 <-> groq_2, openai_1 <-> openai_2) to balance quota without hitting RPM ceilings.
         """
         self._call_count += 1
         base_priority = [p for p in self._priority if p in self._providers]
 
         # 1. Task & Token-based segregation
         if request.recipe_name in self.FAST_LOW_TOKEN_RECIPES:
-            fast = [p for p in base_priority if p.startswith("groq")]
-            rest = [p for p in base_priority if not p.startswith("groq")]
+            # Fast, lightweight low-token tasks (triage, relation critic, number check)
+            fast = [
+                p for p in base_priority
+                if p in ("groq_fast", "zai_fast", "gemini_lite", "gemini_flash_lite")
+                or p.startswith("groq")
+                or p.startswith("zai")
+                or "lite" in p
+            ]
+            rest = [p for p in base_priority if p not in fast]
             base_priority = fast + rest
-        elif request.recipe_name:
-            heavy = [p for p in base_priority if p.startswith("gemini")]
-            rest = [p for p in base_priority if not p.startswith("gemini")]
+
+        elif request.recipe_name in self.COMPLEX_REASONING_RECIPES:
+            # Complex reasoning: Groq heavy (GPT-OSS 120B), Groq reason (Qwen 3.8 27B), Gemini HC (3.8 Flash), direct OpenAI
+            heavy = [
+                p for p in base_priority
+                if p in ("groq_heavy", "groq_reason", "gemini_hc", "gemini_pro")
+                or p.startswith("openai")
+                or "pro" in p
+            ]
+            rest = [p for p in base_priority if p not in heavy]
             base_priority = heavy + rest
 
+        elif request.recipe_name in self.HIGH_TOKEN_RECIPES:
+            # High-token tasks: Gemini 3.8 Flash (1M+ context window) first with token precautions
+            high_ctx = [p for p in base_priority if p in ("gemini_hc",)]
+            gemini_rest = [p for p in base_priority if p.startswith("gemini") and p not in high_ctx]
+            other = [p for p in base_priority if not p.startswith("gemini")]
+            base_priority = high_ctx + gemini_rest + other
+
+        elif request.recipe_name:
+            # Medium tasks (summarize, quiz generation, clustering)
+            medium_p = [
+                p for p in base_priority
+                if p in ("groq_fast", "groq_1", "groq_2")
+                or (p.startswith("gemini") and p not in ("gemini_hc", "gemini_pro"))
+                or p.startswith("groq")
+                or p.startswith("zai")
+            ]
+            rest = [p for p in base_priority if p not in medium_p]
+            base_priority = medium_p + rest
+
         # 2. Multi-Account pool rotation across multiple user accounts
-        for prefix in ("gemini", "groq"):
-            matching = [p for p in base_priority if p.startswith(prefix)]
+        for prefix in ("gemini", "groq", "openai", "zai"):
+            matching = [p for p in base_priority if p.startswith(prefix) and (p[-1].isdigit() or p == prefix)]
             if len(matching) > 1:
                 shift = self._call_count % len(matching)
                 rotated = matching[shift:] + matching[:shift]
                 rot_iter = iter(rotated)
-                base_priority = [next(rot_iter) if p.startswith(prefix) else p for p in base_priority]
+                base_priority = [next(rot_iter) if p in matching else p for p in base_priority]
 
         return base_priority
 
@@ -244,13 +317,17 @@ def get_router() -> LLMRouter:
 
 
 def _build_router() -> LLMRouter:
-    from core.llm.providers.anthropic import AnthropicProvider
     from core.llm.providers.fake import FakeProvider
     from core.llm.providers.gemini import GeminiProvider
     from core.llm.providers.groq import GroqProvider
+    from core.llm.providers.openai import OpenAIProvider
 
     provider_configs = getattr(settings, "LLM_PROVIDER_CONFIG", {})
-    priority = getattr(settings, "LLM_PROVIDER_PRIORITY", ["gemini_1", "gemini_2", "groq"])
+    priority = getattr(
+        settings,
+        "LLM_PROVIDER_PRIORITY",
+        ["groq_fast", "groq_heavy", "gemini_1", "gemini_2", "zai"],
+    )
     max_retries = getattr(settings, "LLM_MAX_RETRIES", 2)
 
     provider_map: dict[str, BaseProvider] = {}
@@ -260,13 +337,41 @@ def _build_router() -> LLMRouter:
         model = cfg.get("model", "")
 
         if name.startswith("gemini"):
-            api_key_env = cfg.get("api_key_env", f"GEMINI_API_KEY_{name[-1].upper()}")
+            default_env = (
+                f"GEMINI_API_KEY_{name[-1]}"
+                if name[-1].isdigit()
+                else "GEMINI_API_KEY_1"
+            )
+            api_key_env = cfg.get("api_key_env", default_env)
             provider_map[name] = GeminiProvider(name=name, api_key_env=api_key_env, model=model)
 
         elif name.startswith("groq"):
-            default_env = f"GROQ_API_KEY_{name[-1].upper()}" if name[-1].isdigit() else "GROQ_API_KEY"
+            default_env = (
+                f"GROQ_API_KEY_{name[-1]}"
+                if name[-1].isdigit()
+                else "GROQ_API_KEY_1"
+            )
             api_key_env = cfg.get("api_key_env", default_env)
             provider_map[name] = GroqProvider(name=name, api_key_env=api_key_env, model=model)
+
+        elif name.startswith("openai"):
+            default_env = (
+                f"OPENAI_API_KEY_{name[-1]}"
+                if name[-1].isdigit()
+                else "OPENAI_API_KEY_1"
+            )
+            api_key_env = cfg.get("api_key_env", default_env)
+            provider_map[name] = OpenAIProvider(name=name, api_key_env=api_key_env, model=model)
+
+        elif name.startswith("zai"):
+            from core.llm.providers.zai import ZAIProvider
+            default_env = (
+                f"ZAI_API_KEY_{name[-1]}"
+                if name[-1].isdigit()
+                else "ZAI_API_KEY"
+            )
+            api_key_env = cfg.get("api_key_env", default_env)
+            provider_map[name] = ZAIProvider(name=name, api_key_env=api_key_env, model=model)
 
         elif name == "fake":
             provider_map[name] = FakeProvider()

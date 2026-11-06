@@ -26,6 +26,7 @@ from django.utils import timezone
 from core.llm.providers.base import BaseProvider, LLMProviderError, LLMRequest, LLMResponse, RateLimitError
 from core.llm.providers.gemini import GeminiProvider
 from core.llm.providers.groq import GroqProvider
+from core.llm.providers.openai import OpenAIProvider
 from core.llm.router import LLMRouter, get_router
 from core.models import DailyPersonalizedQuota, LLMCredential
 
@@ -62,12 +63,15 @@ def create_byok_provider(credential: LLMCredential) -> BaseProvider:
     p = credential.provider.lower()
 
     if p == "gemini":
-        return GeminiProvider(name="byok_gemini", model="gemini-1.5-flash-latest", api_key=api_key)
+        return GeminiProvider(name="byok_gemini", model="gemini-3.5-flash", api_key=api_key)
     elif p == "groq":
-        return GroqProvider(model="llama-3.1-8b-instant", api_key=api_key)
+        return GroqProvider(model="openai/gpt-oss-20b", api_key=api_key)
+    elif p == "zai":
+        from core.llm.providers.zai import ZAIProvider
+        return ZAIProvider(name="byok_zai", model="glm-4.7-flash", api_key=api_key)
     else:
-        # Default to Groq or generic adapter
-        return GroqProvider(model="llama-3.1-8b-instant", api_key=api_key)
+        # Default to Groq
+        return GroqProvider(model="openai/gpt-oss-20b", api_key=api_key)
 
 
 def get_daily_quota_status(user: User | None, session_id: str = "") -> dict[str, Any]:
