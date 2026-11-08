@@ -40,7 +40,7 @@ class GeminiProvider(BaseProvider):
     def __init__(self, name: str, api_key_env: str = "", model: str = "", api_key: str | None = None) -> None:
         self.name = name
         self._api_key_env = api_key_env
-        self._model_name = model or "gemini-1.5-flash-latest"
+        self._model_name = model or "gemini-3.5-flash"
         self._api_key_override = api_key
         self._client: Any = None
 
@@ -56,7 +56,7 @@ class GeminiProvider(BaseProvider):
             if not key:
                 raise LLMProviderError(self.name, "No API key configured", retriable=False)
             genai = _get_genai()
-            genai.configure(api_key=key)
+            genai.configure(api_key=key, transport="rest")
             self._client = genai.GenerativeModel(self._model_name)
         return self._client
 

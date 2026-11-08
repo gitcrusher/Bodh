@@ -1,4 +1,10 @@
-"""Groq provider adapter — free tier: Llama3.1 8B Instant, Gemma2 9B."""
+"""
+Groq provider adapter — high-speed inference on LPUs.
+Hosted models:
+- openai/gpt-oss-120b: Flagship 120B open-weight MoE reasoning model (~500 tps).
+- openai/gpt-oss-20b: Ultra-fast 20B open-weight MoE model (~1,000 tps).
+- llama-3.1-8b-instant: Lightweight fallback model.
+"""
 
 from __future__ import annotations
 
@@ -31,20 +37,28 @@ def _get_groq() -> Any:
 
 class GroqProvider(BaseProvider):
     """
-    Groq adapter.
-    Free tier (Oct 2026): 14,400 RPD / 30 RPM on Llama-3.1-8B-Instant.
-    Use for triage (cheap, fast) and as pipeline fallback.
+    Groq adapter with OpenAI GPT-OSS support on LPUs.
+    Supports:
+    - openai/gpt-oss-120b: Complex reasoning, agentic tasks, deep synthesis (~500 tps).
+    - openai/gpt-oss-20b: Medium & fast tasks, function calling, low token overhead (~1,000 tps).
+    - Multi-account rotation via api_key_env (e.g. GROQ_API_KEY_1, GROQ_API_KEY_2).
     """
 
-    name = "groq"
-
-    def __init__(self, model: str = "", api_key: str | None = None) -> None:
-        self._model_name = model or "llama-3.1-8b-instant"
+    def __init__(
+        self,
+        name: str = "groq",
+        api_key_env: str = "GROQ_API_KEY",
+        model: str = "",
+        api_key: str | None = None,
+    ) -> None:
+        self.name = name
+        self._api_key_env = api_key_env
+        self._model_name = model or "openai/gpt-oss-20b"
         self._api_key_override = api_key
         self._client: Any = None
 
     def _api_key(self) -> str | None:
-        return self._api_key_override or os.getenv("GROQ_API_KEY") or None
+        return self._api_key_override or os.getenv(self._api_key_env) or os.getenv("GROQ_API_KEY") or None
 
     def is_available(self) -> bool:
         return bool(self._api_key())
@@ -53,7 +67,7 @@ class GroqProvider(BaseProvider):
         if self._client is None:
             key = self._api_key()
             if not key:
-                raise LLMProviderError(self.name, "No GROQ_API_KEY configured", retriable=False)
+                raise LLMProviderError(self.name, f"No API key configured for {self.name} ({self._api_key_env})", retriable=False)
             groq = _get_groq()
             self._client = groq.Groq(api_key=key)
         return self._client
