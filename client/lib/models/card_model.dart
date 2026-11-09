@@ -1,5 +1,37 @@
 import 'validity_signal.dart';
 
+/// Trend summary matching Step 6 social signals (§6, §8).
+class CardTrendSummary {
+  final bool isTrending;
+  final int totalMentions;
+  final double highestEngagement;
+  final List<String> platforms;
+  final String primaryReason;
+
+  const CardTrendSummary({
+    this.isTrending = false,
+    this.totalMentions = 0,
+    this.highestEngagement = 0.0,
+    this.platforms = const [],
+    this.primaryReason = '',
+  });
+
+  factory CardTrendSummary.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const CardTrendSummary();
+    return CardTrendSummary(
+      isTrending: json['is_trending'] as bool? ?? false,
+      totalMentions: json['total_mentions'] as int? ?? 0,
+      highestEngagement: (json['highest_engagement'] as num?)?.toDouble() ?? 0.0,
+      platforms: (json['platforms'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      primaryReason: json['primary_reason'] as String? ?? '',
+    );
+  }
+}
+
+
 /// 60-second News Card model matching backend DRF CardListSerializer / CardDetailSerializer.
 class NewsCard {
   final int id;
@@ -19,6 +51,8 @@ class NewsCard {
   final List<Map<String, dynamic>> relatedPreview;
   final String? imageUrl;
   final bool isPrimaryFeed;
+  final String publisherRelationship;
+  final CardTrendSummary trendSummary;
 
   const NewsCard({
     required this.id,
@@ -38,6 +72,8 @@ class NewsCard {
     this.relatedPreview = const [],
     this.imageUrl,
     this.isPrimaryFeed = true,
+    this.publisherRelationship = 'independent',
+    this.trendSummary = const CardTrendSummary(),
   });
 
   factory NewsCard.fromJson(Map<String, dynamic> json) {
@@ -71,6 +107,8 @@ class NewsCard {
           const [],
       imageUrl: json['image_url'] as String?,
       isPrimaryFeed: json['is_primary_feed'] as bool? ?? true,
+      publisherRelationship: json['publisher_relationship'] as String? ?? 'independent',
+      trendSummary: CardTrendSummary.fromJson(json['trend_summary'] as Map<String, dynamic>?),
     );
   }
 

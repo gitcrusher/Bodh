@@ -1,7 +1,18 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/card_model.dart';
+import 'app_config.dart';
+import 'auth_service.dart';
 import '../widgets/dynamic_paper_link.dart';
+
+class FeedGatedException implements Exception {
+  final String message;
+  final int? activeSessionId;
+  const FeedGatedException({required this.message, this.activeSessionId});
+
+  @override
+  String toString() => message;
+}
 
 class PaginatedCards {
   final List<NewsCard> cards;
@@ -17,8 +28,71 @@ class PaginatedCards {
 
 class ApiService {
   final String baseUrl;
+  final String coreBaseUrl;
 
-  ApiService({this.baseUrl = 'http://127.0.0.1:8000/api/v1/research'});
+  ApiService({
+    String? baseUrl,
+    String? coreBaseUrl,
+  })  : baseUrl = baseUrl ?? AppConfig.researchBaseUrl,
+        coreBaseUrl = coreBaseUrl ?? AppConfig.coreBaseUrl;
+
+  /// Fetch user's registered BYOK credentials (masked keys)
+  Future<List<Map<String, dynamic>>> fetchCredentials() async {
+    try {
+      final res = await http.get(Uri.parse('$coreBaseUrl/credentials/')).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final list = json.decode(utf8.decode(res.bodyBytes)) as List<dynamic>;
+        return list.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Register or update a user's BYOK API key (encrypted at rest)
+  Future<Map<String, dynamic>?> saveCredential(String provider, String apiKey, {bool isDefault = true}) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$coreBaseUrl/credentials/'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'provider': provider,
+          'api_key': apiKey,
+          'is_default': isDefault,
+        }),
+      ).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Delete a BYOK credential
+  Future<bool> deleteCredential(int id) async {
+    try {
+      final res = await http.delete(Uri.parse('$coreBaseUrl/credentials/$id/')).timeout(const Duration(seconds: 4));
+      return res.statusCode == 204;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Check remaining daily personalized quota & BYOK status
+  Future<Map<String, dynamic>> fetchQuotaStatus() async {
+    try {
+      final res = await http.get(Uri.parse('$coreBaseUrl/credentials/quota/')).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        return json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return {
+      'has_byok': false,
+      'used': 0,
+      'limit': 5,
+      'remaining': 5,
+      'is_capped': false,
+    };
+  }
 
   /// Fetch paginated cards from /api/v1/research/cards/
   Future<PaginatedCards> fetchCards({
@@ -35,7 +109,10 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/cards/').replace(queryParameters: queryParams);
 
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
+      final response = await http.get(
+        uri,
+        headers: AuthService().authHeaders,
+      ).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         final results = (data['results'] as List<dynamic>? ?? [])
@@ -53,8 +130,20 @@ class ApiService {
         if (results.isNotEmpty) {
           return PaginatedCards(cards: results, nextCursor: nextCursor);
         }
+      } else if (response.statusCode == 403) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        if (data['feed_gated'] == true) {
+          throw FeedGatedException(
+            message: data['message'] as String? ??
+                'Your 15-day comprehension check is due. Complete the 10-minute quiz on scrolled papers to continue reading.',
+            activeSessionId: data['active_session_id'] as int?,
+          );
+        }
       }
-    } catch (_) {
+    } on FeedGatedException {
+      rethrow;
+    } catch (e) {
+      if (e is FeedGatedException) rethrow;
       // Server unreachable; fall through to sample offline cards for immediate rich preview
     }
 

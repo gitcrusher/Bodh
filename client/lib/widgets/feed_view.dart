@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import '../models/card_model.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../services/chat_service.dart';
 import '../services/feed_persistence_service.dart';
 import '../theme/tokens.dart';
-import 'deep_dive_sheet.dart';
+import 'auth_screen.dart';
+import 'chat_history_screen.dart';
+import 'byok_settings_sheet.dart';
 import 'learner_profile_sheet.dart';
-import 'news_card.dart';
-import 'paper_chat_sheet.dart';
 import 'quiz_modal.dart';
+import 'retention_quiz_sheet.dart';
+import 'stacked_card_feed.dart';
 
 /// Hardcore Inshorts-style main view with top horizontal navigation bar,
 /// vertical snap page-view card feed, and bottom system bar.
@@ -37,6 +41,7 @@ class FeedView extends StatefulWidget {
 class _FeedViewState extends State<FeedView> {
   final ApiService _apiService = ApiService();
   final FeedPersistenceService _persistence = FeedPersistenceService();
+  final ChatService _chatService = ChatService();
   final PageController _pageController = PageController();
   final PageController _horizontalTabController = PageController();
 
@@ -45,6 +50,8 @@ class _FeedViewState extends State<FeedView> {
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _error;
+  bool _isFeedGated = false;
+  String? _gatedMessage;
 
   int _currentCardIndex = 0;
   String _activeTab = 'My Feed';
@@ -87,6 +94,8 @@ class _FeedViewState extends State<FeedView> {
         _cards = prioritized;
         _nextCursor = res.nextCursor;
         _currentCardIndex = resumeIndex;
+        _isFeedGated = false;
+        _gatedMessage = null;
         _isLoading = false;
       });
 
@@ -102,6 +111,15 @@ class _FeedViewState extends State<FeedView> {
       if (prioritized.isNotEmpty && resumeIndex < prioritized.length) {
         _persistence.saveReadingProgress(resumeIndex, prioritized[resumeIndex]);
       }
+    } on FeedGatedException catch (e) {
+      setState(() {
+        _isFeedGated = true;
+        _gatedMessage = e.message;
+        _isLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showRetentionQuizModal();
+      });
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -126,6 +144,46 @@ class _FeedViewState extends State<FeedView> {
     } catch (_) {
       setState(() => _isLoadingMore = false);
     }
+  }
+
+  /// Marks card as read in persistence without destroying deck scroll history
+  /// and registers card into Rule 65 (OKF) 15-day retention challenge pool
+  void _onCardDismissed(NewsCard card) {
+    _persistence.saveReadingProgress(_currentCardIndex, card);
+    _persistence.markCardAsSeen(card);
+    AuthService().recordScrolledCard(card);
+  }
+
+  void _showRetentionQuizModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => RetentionQuizSheet(
+        onCompleted: () {
+          setState(() {
+            _isFeedGated = false;
+            _gatedMessage = null;
+          });
+          _loadInitialCards();
+        },
+      ),
+    );
+  }
+
+  void _showAuthScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => AuthScreen(
+          onAuthenticated: () {
+            setState(() {});
+            _loadInitialCards();
+          },
+        ),
+      ),
+    );
   }
 
   NewsCard? get _currentCard {
@@ -221,59 +279,92 @@ class _FeedViewState extends State<FeedView> {
 
   /// Horizontal scrolling Inshorts navigation tab bar (Pure black, docked at top edge)
   Widget _buildTopNavBar(ThemeData theme) {
+    final auth = AuthService();
     return Container(
       height: 46,
       width: double.infinity,
       color: Colors.black,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        itemCount: _navTabs.length,
-        itemBuilder: (ctx, idx) {
-          final tab = _navTabs[idx];
-          final isActive = _activeTab == tab;
+      child: Row(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              itemCount: _navTabs.length,
+              itemBuilder: (ctx, idx) {
+                final tab = _navTabs[idx];
+                final isActive = _activeTab == tab;
 
-          return GestureDetector(
-            onTap: () {
-              setState(() => _activeTab = tab);
-              if (_horizontalTabController.hasClients) {
-                _horizontalTabController.animateToPage(
-                  idx,
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeInOut,
-                );
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    tab,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                      color: isActive ? const Color(0xFF2196F3) : Colors.white70,
+                return GestureDetector(
+                  onTap: () {
+                    setState(() => _activeTab = tab);
+                    if (_horizontalTabController.hasClients) {
+                      _horizontalTabController.animateToPage(
+                        idx,
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          tab,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                            color: isActive ? const Color(0xFF2196F3) : Colors.white70,
+                          ),
+                        ),
+                        if (isActive)
+                          Container(
+                            margin: const EdgeInsets.only(top: 4),
+                            height: 2.5,
+                            width: 22,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2196F3),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  if (isActive)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      height: 2.5,
-                      width: 22,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2196F3),
-                        borderRadius: BorderRadius.circular(2),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: auth.isAuthenticated
+                ? GestureDetector(
+                    onTap: () => LearnerProfileSheet.show(context),
+                    child: CircleAvatar(
+                      radius: 13,
+                      backgroundColor: const Color(0xFF238636),
+                      child: Text(
+                        auth.username?.isNotEmpty == true ? auth.username![0].toUpperCase() : 'U',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                     ),
-                ],
-              ),
-            ),
-          );
-        },
+                  )
+                : TextButton(
+                    onPressed: _showAuthScreen,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text(
+                      'Sign In',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF58A6FF)),
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -282,6 +373,11 @@ class _FeedViewState extends State<FeedView> {
   Widget _buildMainBody(ThemeData theme) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator.adaptive());
+    }
+
+    // Rule 65: If feed is gated, block forward progression until 10-minute quiz is taken
+    if (_isFeedGated) {
+      return _buildGatedFeedView(theme);
     }
 
     if (_error != null && _cards.isEmpty) {
@@ -293,7 +389,8 @@ class _FeedViewState extends State<FeedView> {
             children: [
               const Icon(Icons.wifi_off_outlined, size: 48, color: Colors.grey),
               const SizedBox(height: 12),
-              Text('Feed temporarily offline', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white)),
+              Text('Feed temporarily offline',
+                  style: theme.textTheme.titleMedium?.copyWith(color: Colors.white)),
               const SizedBox(height: 8),
               Text(
                 'Could not connect to the news server. Tap below to retry.',
@@ -338,6 +435,85 @@ class _FeedViewState extends State<FeedView> {
     );
   }
 
+  /// Rule 65: Feed Gated View.
+  /// If the 15-day comprehension check is due, the user is strictly not allowed to proceed forward
+  /// until they complete the 10-minute maximum retention challenge.
+  Widget _buildGatedFeedView(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.red.withValues(alpha: 0.15),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5), width: 2),
+              ),
+              child: const Icon(Icons.lock_rounded, size: 48, color: Colors.redAccent),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.red.shade900.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+              ),
+              child: const Text(
+                'RULE 65 — 15-DAY COMPREHENSION CHECK',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  color: Colors.redAccent,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Feed Gated for Knowledge Verification',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _gatedMessage ??
+                  'Your 15-day comprehension check is due. Complete the 10-minute quiz on scrolled papers to continue reading.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70, height: 1.4),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 4,
+                ),
+                onPressed: _showRetentionQuizModal,
+                icon: const Icon(Icons.timer_outlined, size: 20),
+                label: const Text(
+                  'Start 10-Minute Challenge',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Vertical snap feed of hardcore Inshorts cards ("flash scrollable cards")
   Widget _buildVerticalCardsFeed(ThemeData theme, String? category) {
     List<NewsCard> displayCards = _cards;
@@ -348,44 +524,93 @@ class _FeedViewState extends State<FeedView> {
       if (filtered.isNotEmpty) displayCards = filtered;
     } else if (category == 'Hardware') {
       final filtered = _cards
-          .where((c) => c.tags.any((t) => t.contains('hardware') || t.contains('gpu') || t.contains('efficiency')))
+          .where((c) => c.tags
+              .any((t) => t.contains('hardware') || t.contains('gpu') || t.contains('efficiency')))
           .toList();
       if (filtered.isNotEmpty) displayCards = filtered;
     } else if (category == 'Reasoning') {
       final filtered = _cards
-          .where((c) => c.tags.any((t) => t.contains('reasoning') || t.contains('math') || t.contains('rl')))
+          .where((c) =>
+              c.tags.any((t) => t.contains('reasoning') || t.contains('math') || t.contains('rl')))
           .toList();
       if (filtered.isNotEmpty) displayCards = filtered;
     }
 
     if (displayCards.isEmpty) {
-      return const Center(
-        child: Text('No research papers in this category.', style: TextStyle(color: Colors.white70)),
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_circle_outline_rounded,
+                    size: 52, color: Colors.greenAccent),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                "You're All Caught Up!",
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "All unread research papers have been consumed. Tap below to fetch newly published research or reset.",
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                onPressed: () {
+                  _persistence.reset();
+                  _loadInitialCards();
+                },
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Refresh Feed'),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadInitialCards,
-      child: PageView.builder(
-        controller: category == null ? _pageController : null,
-        scrollDirection: Axis.vertical,
-        physics: const PageScrollPhysics(), // Fast, snappy, seamless flash-scrolling!
-        itemCount: displayCards.length,
-        onPageChanged: (idx) {
-          if (category == null) {
-            setState(() => _currentCardIndex = idx);
-            if (idx >= 0 && idx < displayCards.length) {
-              _persistence.saveReadingProgress(idx, displayCards[idx]);
-            }
-            if (idx >= displayCards.length - 2) {
-              _loadMoreCards();
-            }
+    return StackedCardFeed(
+      cards: displayCards,
+      initialIndex: category == null ? _currentCardIndex : 0,
+      onCardChanged: (idx) {
+        if (category == null) {
+          setState(() => _currentCardIndex = idx);
+          if (idx >= 0 && idx < displayCards.length) {
+            _persistence.saveReadingProgress(idx, displayCards[idx]);
+            _persistence.markCardAsSeen(displayCards[idx]);
           }
-        },
-        itemBuilder: (ctx, idx) {
-          return NewsCardWidget(card: displayCards[idx]);
-        },
-      ),
+        }
+      },
+      onCardDismissed: (card) {
+        if (category == null) {
+          _onCardDismissed(card);
+        } else {
+          // For category views, also evict from primary list
+          _onCardDismissed(card);
+        }
+      },
+      onEndReached: () {
+        if (category == null) {
+          _loadMoreCards();
+        }
+      },
+      onRefresh: _loadInitialCards,
     );
   }
 
@@ -400,114 +625,121 @@ class _FeedViewState extends State<FeedView> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Column(
             children: [
-              Text('Welcome to ', style: theme.textTheme.bodyMedium),
-              const Text('inshorts', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-              const Text(' research', style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'DAILY RITUAL',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFFE53935),
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Designed to turn staying informed into a daily habit!',
-            style: theme.textTheme.bodySmall?.copyWith(fontSize: 13),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Welcome to ', style: theme.textTheme.bodyMedium),
+                  const Text('bodh',
+                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  const Text(' research', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'DAILY RITUAL',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFE53935),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Designed to turn staying informed into a daily habit!',
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 28),
 
-          // Step 1: Read Today's News
-          _buildRitualStepCard(
-            stepNumber: 'Step-1',
-            title: "Read Today's Research",
-            subtitle: 'Get the top AI papers that matter for the day in one place.',
-            icon: Icons.newspaper_rounded,
-            iconColor: Colors.blueAccent,
-            theme: theme,
-          ),
+              // Step 1: Read Today's News
+              _buildRitualStepCard(
+                stepNumber: 'Step-1',
+                title: "Read Today's Research",
+                subtitle: 'Get the top AI papers that matter for the day in one place.',
+                icon: Icons.newspaper_rounded,
+                iconColor: Colors.blueAccent,
+                theme: theme,
+              ),
 
-          const SizedBox(height: 18),
+              const SizedBox(height: 18),
 
-          // Step 2: Build Your Knowledge Streak
-          _buildRitualStepCard(
-            stepNumber: 'Step-2',
-            title: 'Build Your Knowledge Streak',
-            subtitle: 'Test your understanding with 5-minute topic quizzes.',
-            icon: Icons.local_fire_department_rounded,
-            iconColor: Colors.orangeAccent,
-            theme: theme,
-          ),
+              // Step 2: Build Your Knowledge Streak (Rule 65 OKF)
+              _buildRitualStepCard(
+                stepNumber: 'Step-2',
+                title: '15-Day Retention Challenge',
+                subtitle: 'Test your understanding with 10-minute quizzes on papers you scrolled.',
+                icon: Icons.local_fire_department_rounded,
+                iconColor: Colors.orangeAccent,
+                theme: theme,
+              ),
 
-          const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-          // Reader count banner
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.group_rounded, color: Color(0xFFE53935), size: 22),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Lakhs of AI researchers and practitioners have made Daily Ritual their everyday habit.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: theme.textTheme.bodyLarge?.color,
+              // Reader count banner
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.group_rounded, color: Color(0xFFE53935), size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Lakhs of AI researchers and practitioners have made Daily Ritual their everyday habit.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: theme.textTheme.bodyLarge?.color,
+                        ),
+                      ),
                     ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Large Red "Tap Here to Start" Button (matches frame_552.jpg)
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE53935),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 4,
+                  ),
+                  onPressed: () {
+                    final auth = AuthService();
+                    if (auth.isAuthenticated) {
+                      _showRetentionQuizModal();
+                    } else {
+                      final card = _currentCard;
+                      final topic = card?.tags.isNotEmpty == true ? card!.tags.first : 'transformers';
+                      QuizModal.show(context,
+                          topicSlug: topic, topicDisplayName: topic.toUpperCase());
+                    }
+                  },
+                  child: Text(
+                    AuthService().isAuthenticated ? 'Start 15-Day Retention Challenge (10 min)' : 'Tap Here to Start Quiz',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                 ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Large Red "Tap Here to Start" Button (matches frame_552.jpg)
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE53935),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 4,
               ),
-              onPressed: () {
-                final card = _currentCard;
-                final topic = card?.tags.isNotEmpty == true ? card!.tags.first : 'transformers';
-                QuizModal.show(context, topicSlug: topic, topicDisplayName: topic.toUpperCase());
-              },
-              child: const Text(
-                'Tap Here to Start Quiz',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
-    ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildRitualStepCard({
     required String stepNumber,
@@ -643,18 +875,41 @@ class _FeedViewState extends State<FeedView> {
             },
           ),
 
-          // Profile / Settings Icon (matches Inshorts)
+          // Chats Icon
           IconButton(
-            tooltip: 'Learner Profile & Settings',
+            tooltip: 'Past Conversations',
             icon: Icon(
-              Icons.account_circle_rounded,
-              size: 28,
+              Icons.chat_bubble_outline_rounded,
+              size: 25,
               color: _bottomNavIndex == 2 ? const Color(0xFF2196F3) : Colors.white70,
             ),
             onPressed: () {
               setState(() => _bottomNavIndex = 2);
-              LearnerProfileSheet.show(context);
+              ChatHistoryScreen.show(
+                context,
+                chatService: _chatService,
+                allCards: _cards,
+              );
             },
+          ),
+
+          // Profile / Settings Icon (matches Inshorts)
+          GestureDetector(
+            onLongPress: () {
+              ByokSettingsSheet.show(context);
+            },
+            child: IconButton(
+              tooltip: 'Learner Profile & BYOK Keys',
+              icon: Icon(
+                Icons.account_circle_rounded,
+                size: 28,
+                color: _bottomNavIndex == 3 ? const Color(0xFF2196F3) : Colors.white70,
+              ),
+              onPressed: () {
+                setState(() => _bottomNavIndex = 3);
+                LearnerProfileSheet.show(context);
+              },
+            ),
           ),
         ],
       ),
