@@ -112,24 +112,14 @@ class MeView(APIView):
 
     def get(self, request: Request) -> Response:
         user = request.user
-        data = {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "date_joined": user.date_joined,
-        }
-
-        # Attach knowledge cycle info if available
-        if hasattr(user, "knowledge_cycle"):
-            cycle = user.knowledge_cycle
-            data["cycle"] = {
-                "is_quiz_due": cycle.is_quiz_due,
-                "next_quiz_due_at": cycle.next_quiz_due_at,
-                "last_quiz_completed_at": cycle.last_quiz_completed_at,
-                "is_gated": cycle.is_gated,
+        return Response(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "date_joined": user.date_joined,
             }
-
-        return Response(data)
+        )
 
 
 class LogoutView(APIView):

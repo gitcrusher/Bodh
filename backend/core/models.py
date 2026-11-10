@@ -212,8 +212,7 @@ class LLMCredential(models.Model):
     PROVIDER_CHOICES = [
         ("gemini", "Google Gemini"),
         ("groq", "Groq"),
-        ("anthropic", "Anthropic Claude"),
-        ("openai", "OpenAI"),
+        ("zai", "Z.AI (BigModel GLM)"),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="llm_credentials")
